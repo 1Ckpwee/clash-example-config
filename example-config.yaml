@@ -1,0 +1,608 @@
+
+mixed-port: 7890
+#---------------------------------------------------#
+## Update：2022-06-24 11:43:22
+## Author: Enoch
+## Github: https://github.com/1Ckpwee
+#---------------------------------------------------#
+
+
+# Linux 和 macOS 的 redir 代理端口
+redir-port: 7892
+
+# 允许局域网的连接
+allow-lan: true
+
+# 规则模式：Rule（规则） / Global（全局代理）/ Direct（全局直连）
+mode: rule
+
+# 设置日志输出级别 (默认级别：silent，即不输出任何内容，以避免因日志内容过大而导致程序内存溢出）。
+# 5 个级别：silent / info / warning / error / debug。级别越高日志输出量越大，越倾向于调试，若需要请自行开启。
+log-level: info
+# Clash 的 RESTful API
+external-controller: '0.0.0.0:9090'
+
+# RESTful API 的口令
+secret: ''
+
+dns:
+  enable: true
+  ipv6: true
+  listen: '0.0.0.0:53'
+  use-hosts: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 202.120.224.6
+    - 114.114.114.114
+    - 223.5.5.5
+    - 'tcp://223.5.5.5'
+  fallback:
+    - 'tls://223.5.5.5:853'
+    - 'https://223.5.5.5/dns-query'
+  fallback-filter:
+    geoip: true
+    ipcidr:
+      - 240.0.0.0/4
+proxies:
+  # 这里可以预定义一些本地节点（可以是自己用 VPS 搭建，也可以是订阅部分节点取出连接质量好的那部分）
+  # 我打算优先选择这些本地节点，否则 fallback 到订阅节点
+  - {name: local-node1, server: xxx, port: 2263, type: ssr, cipher: aes-256-cfb, password: xxx, protocol: auth_aes128_sha1, obfs: http_simple, protocol-param: 89335:oIvoB5, obfs-param: fcc6789335.microsoft.com}
+  - {name: local-node2, server: xxx, port: 2224, type: ssr, cipher: aes-256-cfb, password: xxx, protocol: auth_aes128_sha1, obfs: http_simple, protocol-param: 89335:oIvoB5, obfs-param: fcc6789335.microsoft.com}
+  - {name: local-node3, server: xxx, port: 2225, type: ssr, cipher: aes-256-cfb, password: xxx, protocol: auth_aes128_sha1, obfs: http_simple, protocol-param: 89335:oIvoB5, obfs-param: fcc6789335.microsoft.com}
+
+# proxy provider start here
+proxy-providers:
+  # 这里可以选择多个不同源的节点（provider1、2、3）
+  # 参考官方文档 proxy-provider ref：https://github.com/Dreamacro/clash/wiki/configuration#proxy-providers
+  provider1:
+    type: file
+    path: ./custom/provider1.yaml
+    health-check:
+      enable: false
+      url: ${url}
+      interval: 3600
+  provider2:
+    type: http
+    path: ./custom/provider2.yaml
+    url: ${url}
+    interval: 36000
+    health-check:
+      enable: true
+      url: http://www.gstatic.com/generate_204
+      interval: 3600
+  provider3:
+    type: http
+    path: ./custom/provider3.yaml
+    url: ${url}
+    interval: 36000
+    health-check:
+      enable: true
+      url: http://www.gstatic.com/generate_204
+      interval: 3600
+  provider4(streaming):
+    type: http
+    path: ./custom/provider4.yaml
+    url: ${url}
+    interval: 36000
+    health-check:
+      enable: true
+      url: http://www.gstatic.com/generate_204
+      interval: 3600
+  provider5(streaming):
+    type: http
+    path: ./custom/provider5.yaml
+    url: ${url}
+    interval: 36000
+    health-check:
+      enable: true
+      url: http://www.gstatic.com/generate_204
+      interval: 3600      
+# proxy provider end
+
+proxy-groups:
+  # 这里就定义几个策略组用于为不同站点分流到这些策略
+  # 1. 日常（比如 google、github 等）
+  # 2. 流媒体（比如 netflix、Disney 等）
+
+  ## 在这个策略中，采用 fallback 优先尝试质量较高的节点（延迟低、稳定）。
+  ## 如果出问题再 fallback 到订阅节点，这里我指向另一个 proxy-group（后面到这个 group 我会提到具体方式）
+  - name: 日常
+    type: fallback
+    url: 'http://www.gstatic.com/generate_204'
+    interval: 300
+    proxies:
+      - local-node1
+      - local-node2
+      - local-node3
+      - providers
+  ## 这个 group 中我包含了不同源的所有订阅节点，通过 url-test 校验延迟最低的节点
+  ## 当然这里也可以只用一个源，只不过为了保证节点大面积挂掉，使用多源节点保证访问（所以在挑选订阅节点上需要花点功夫）
+  - name: providers
+    type: url-test
+    url: 'http://www.gstatic.com/generate_204'
+    interval: 300
+    ## 这里 use 中包含的是 proxy-providers 里加载的远程配置
+    use:
+      - provider1
+      - provider2
+      - provider3
+
+  ## 这个 group 中主要是为了看 Netflix 和 Disney 等流媒体，在后续规则配置中把相关站点的流量路由到这个配置
+  ## 我这里准备了两个源的流媒体节点，先尝试主节点，再尝试副节点
+  - name: 流媒体
+    type: fallback
+    url: 'http://www.gstatic.com/generate_204'
+    interval: 300
+    proxies:
+     - 流媒体(master)
+     - 流媒体(slave)
+
+  - name: 流媒体(master)
+    type: url-test
+    url: 'http://www.gstatic.com/generate_204'
+    interval: 300
+    use:
+     - provider4(streaming)
+
+  - name: 流媒体(slave)
+    type: url-test
+    url: 'http://www.gstatic.com/generate_204'
+    interval: 300
+    use:
+     - provider5(streaming)
+
+# 自定义规则
+# 这里就是配置流量规则：标识什么站点的流量走哪个策略（比如日常、流媒体或者说直连）
+rules:
+
+  # Streaming
+  - DOMAIN-SUFFIX,netflix.com,流媒体
+  - DOMAIN-SUFFIX,netflix.net,流媒体
+  - DOMAIN-SUFFIX,nflxext.com,流媒体
+  - DOMAIN-SUFFIX,nflximg.com,流媒体
+  - DOMAIN-SUFFIX,nflximg.net,流媒体
+  - DOMAIN-SUFFIX,nflxso.net,流媒体
+  - DOMAIN-SUFFIX,nflxvideo.net,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest0.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest1.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest2.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest3.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest4.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest5.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest6.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest7.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest8.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest9.com,流媒体
+  - DOMAIN-SUFFIX,netflixdnstest10.com,流媒体
+  - DOMAIN-SUFFIX,netflix.com.edgesuite.net,流媒体
+  - DOMAIN-SUFFIX,us-west-2.amazonaws.com,流媒体
+  - DOMAIN-KEYWORD,dualstack.apiproxy-,流媒体
+  - DOMAIN-KEYWORD,apiproxy-device-prod-nlb-,流媒体
+  - DOMAIN-KEYWORD,ichnaea-web-,流媒体
+  - DOMAIN-KEYWORD,netflix,流媒体
+  - IP-CIDR,8.41.4.0/24,流媒体,no-resolve
+  - IP-CIDR,23.78.0.0/16,流媒体,no-resolve
+  - IP-CIDR,23.246.0.0/18,流媒体,no-resolve
+  - IP-CIDR,34.192.0.0/16,流媒体,no-resolve
+  - IP-CIDR,34.208.0.0/12,流媒体,no-resolve
+  - IP-CIDR,34.248.0.0/13,流媒体,no-resolve
+  - IP-CIDR,35.160.0.0/13,流媒体,no-resolve
+  - IP-CIDR,37.77.184.0/21,流媒体,no-resolve
+  - IP-CIDR,38.72.126.0/24,流媒体,no-resolve
+  - IP-CIDR,44.224.0.0/16,流媒体,no-resolve
+  - IP-CIDR,44.230.0.0/16,流媒体,no-resolve
+  - IP-CIDR,45.57.0.0/17,流媒体,no-resolve
+  - IP-CIDR,52.0.0.0/15,流媒体,no-resolve
+  - IP-CIDR,52.5.0.0/16,流媒体,no-resolve
+  - IP-CIDR,52.7.0.0/16,流媒体,no-resolve
+  - IP-CIDR,52.10.0.0/15,流媒体,no-resolve
+  - IP-CIDR,52.12.0.0/15,流媒体,no-resolve
+  - IP-CIDR,52.22.0.0/16,流媒体,no-resolve
+  - IP-CIDR,52.24.0.0/14,流媒体,no-resolve
+  - IP-CIDR,52.32.0.0/14,流媒体,no-resolve
+  - IP-CIDR,52.40.0.0/14,流媒体,no-resolve
+  - IP-CIDR,52.48.0.0/14,流媒体,no-resolve
+  - IP-CIDR,52.54.0.0/16,流媒体,no-resolve
+  - IP-CIDR,52.71.0.0/16,流媒体,no-resolve
+  - IP-CIDR,52.72.0.0/16,流媒体,no-resolve
+  - IP-CIDR,52.88.0.0/15,流媒体,no-resolve
+  - IP-CIDR,54.0.0.0/16,流媒体,no-resolve
+  - IP-CIDR,54.68.0.0/15,流媒体,no-resolve
+  - IP-CIDR,54.74.0.0/15,流媒体,no-resolve
+  - IP-CIDR,54.76.0.0/15,流媒体,no-resolve
+  - IP-CIDR,54.85.0.0/16,流媒体,no-resolve
+  - IP-CIDR,54.86.0.0/16,流媒体,no-resolve
+  - IP-CIDR,54.148.0.0/15,流媒体,no-resolve
+  - IP-CIDR,54.175.0.0/16,流媒体,no-resolve
+  - IP-CIDR,54.186.0.0/15,流媒体,no-resolve
+  - IP-CIDR,54.188.0.0/15,流媒体,no-resolve
+  - IP-CIDR,54.213.0.0/16,流媒体,no-resolve
+  - IP-CIDR,54.214.128.0/17,流媒体,no-resolve
+  - IP-CIDR,64.120.128.0/17,流媒体,no-resolve
+  - IP-CIDR,66.197.128.0/17,流媒体,no-resolve
+  - IP-CIDR,69.53.224.0/19,流媒体,no-resolve
+  - IP-CIDR,103.87.204.0/22,流媒体,no-resolve
+  - IP-CIDR,108.175.32.0/20,流媒体,no-resolve
+  - IP-CIDR,185.2.220.0/22,流媒体,no-resolve
+  - IP-CIDR,185.9.188.0/22,流媒体,no-resolve
+  - IP-CIDR,192.173.64.0/18,流媒体,no-resolve
+  - IP-CIDR,198.38.96.0/19,流媒体,no-resolve
+  - IP-CIDR,198.45.48.0/20,流媒体,no-resolve
+  - IP-CIDR,203.75.84.0/24,流媒体,no-resolve
+  - IP-CIDR,203.83.220.0/22,流媒体,no-resolve
+  - IP-CIDR,203.116.0.0/16,流媒体,no-resolve
+  - IP-CIDR,203.198.0.0/20,流媒体,no-resolve
+  - IP-CIDR,203.198.80.0/21,流媒体,no-resolve
+  - IP-CIDR,207.45.72.0/22,流媒体,no-resolve
+  - IP-CIDR,208.75.76.0/22,流媒体,no-resolve
+  - IP-CIDR,218.102.32.0/19,流媒体,no-resolve
+  - IP-CIDR,219.76.0.0/17,流媒体,no-resolve
+
+  # Google play
+  - DOMAIN,services.googleapis.cn,DIRECT
+  - DOMAIN-SUFFIX,xn--ngstr-lra8j.com,DIRECT
+
+  # Apple
+  - DOMAIN,safebrowsing.urlsec.qq.com,DIRECT # 如果您并不信任此服务提供商或防止其下载消耗过多带宽资源，可以进入 Safari 设置，关闭 Fraudulent Website Warning 功能，并使用 REJECT 策略。
+  - DOMAIN,safebrowsing.googleapis.com,DIRECT # 如果您并不信任此服务提供商或防止其下载消耗过多带宽资源，可以进入 Safari 设置，关闭 Fraudulent Website Warning 功能，并使用 REJECT 策略。
+  - DOMAIN,developer.apple.com,日常
+  - DOMAIN-SUFFIX,digicert.com,日常
+  - DOMAIN,ocsp.apple.com,日常
+  - DOMAIN,ocsp.comodoca.com,日常
+  - DOMAIN,ocsp.usertrust.com,日常
+  - DOMAIN,ocsp.sectigo.com,日常
+  - DOMAIN,ocsp.verisign.net,日常
+  - DOMAIN-SUFFIX,apple-dns.net,日常
+  - DOMAIN,testflight.apple.com,日常
+  - DOMAIN,sandbox.itunes.apple.com,日常
+  - DOMAIN,itunes.apple.com,日常
+  - DOMAIN-SUFFIX,apps.apple.com,日常
+  - DOMAIN-SUFFIX,blobstore.apple.com,日常
+  - DOMAIN,cvws.icloud-content.com,日常
+  - DOMAIN-SUFFIX,mzstatic.com,DIRECT
+  - DOMAIN-SUFFIX,itunes.apple.com,DIRECT
+  - DOMAIN-SUFFIX,icloud.com,DIRECT
+  - DOMAIN-SUFFIX,icloud-content.com,DIRECT
+  - DOMAIN-SUFFIX,me.com,DIRECT
+  - DOMAIN-SUFFIX,aaplimg.com,DIRECT
+  - DOMAIN-SUFFIX,cdn20.com,DIRECT
+  - DOMAIN-SUFFIX,cdn-apple.com,DIRECT
+  - DOMAIN-SUFFIX,akadns.net,DIRECT
+  - DOMAIN-SUFFIX,akamaiedge.net,DIRECT
+  - DOMAIN-SUFFIX,edgekey.net,DIRECT
+  - DOMAIN-SUFFIX,mwcloudcdn.com,DIRECT
+  - DOMAIN-SUFFIX,mwcname.com,DIRECT
+  - DOMAIN-SUFFIX,apple.com,DIRECT
+  - DOMAIN-SUFFIX,apple-cloudkit.com,DIRECT
+  - DOMAIN-SUFFIX,apple-mapkit.com,DIRECT
+
+  # 抗 DNS 污染
+  - DOMAIN-KEYWORD,amazon,日常
+  - DOMAIN-KEYWORD,google,日常
+  - DOMAIN-KEYWORD,gmail,日常
+  - DOMAIN-KEYWORD,youtube,日常
+  - DOMAIN-KEYWORD,facebook,日常
+  - DOMAIN-SUFFIX,fb.me,日常
+  - DOMAIN-SUFFIX,fbcdn.net,日常
+  - DOMAIN-KEYWORD,twitter,日常
+  - DOMAIN-KEYWORD,instagram,日常
+  - DOMAIN-KEYWORD,dropbox,日常
+  - DOMAIN-SUFFIX,twimg.com,日常
+  - DOMAIN-KEYWORD,blogspot,日常
+  - DOMAIN-SUFFIX,youtu.be,日常
+  - DOMAIN-KEYWORD,whatsapp,日常
+  - DOMAIN-SUFFIX,geetest.com,日常
+
+  # 国外网站
+  - DOMAIN-SUFFIX,9to5mac.com,日常
+  - DOMAIN-SUFFIX,abpchina.org,日常
+  - DOMAIN-SUFFIX,adblockplus.org,日常
+  - DOMAIN-SUFFIX,adobe.com,日常
+  - DOMAIN-SUFFIX,akamaized.net,日常
+  - DOMAIN-SUFFIX,alfredapp.com,日常
+  - DOMAIN-SUFFIX,amplitude.com,日常
+  - DOMAIN-SUFFIX,ampproject.org,日常
+  - DOMAIN-SUFFIX,android.com,日常
+  - DOMAIN-SUFFIX,angularjs.org,日常
+  - DOMAIN-SUFFIX,aolcdn.com,日常
+  - DOMAIN-SUFFIX,apkpure.com,日常
+  - DOMAIN-SUFFIX,appledaily.com,日常
+  - DOMAIN-SUFFIX,appshopper.com,日常
+  - DOMAIN-SUFFIX,appspot.com,日常
+  - DOMAIN-SUFFIX,arcgis.com,日常
+  - DOMAIN-SUFFIX,archive.org,日常
+  - DOMAIN-SUFFIX,armorgames.com,日常
+  - DOMAIN-SUFFIX,aspnetcdn.com,日常
+  - DOMAIN-SUFFIX,att.com,日常
+  - DOMAIN-SUFFIX,awsstatic.com,日常
+  - DOMAIN-SUFFIX,azureedge.net,日常
+  - DOMAIN-SUFFIX,azurewebsites.net,日常
+  - DOMAIN-SUFFIX,bing.com,日常
+  - DOMAIN-SUFFIX,bintray.com,日常
+  - DOMAIN-SUFFIX,bit.com,日常
+  - DOMAIN-SUFFIX,bit.ly,日常
+  - DOMAIN-SUFFIX,bitbucket.org,日常
+  - DOMAIN-SUFFIX,bjango.com,日常
+  - DOMAIN-SUFFIX,bkrtx.com,日常
+  - DOMAIN-SUFFIX,blog.com,日常
+  - DOMAIN-SUFFIX,blogcdn.com,日常
+  - DOMAIN-SUFFIX,blogger.com,日常
+  - DOMAIN-SUFFIX,blogsmithmedia.com,日常
+  - DOMAIN-SUFFIX,blogspot.com,日常
+  - DOMAIN-SUFFIX,blogspot.hk,日常
+  - DOMAIN-SUFFIX,bloomberg.com,日常
+  - DOMAIN-SUFFIX,box.com,日常
+  - DOMAIN-SUFFIX,box.net,日常
+  - DOMAIN-SUFFIX,cachefly.net,日常
+  - DOMAIN-SUFFIX,chromium.org,日常
+  - DOMAIN-SUFFIX,cl.ly,日常
+  - DOMAIN-SUFFIX,cloudflare.com,日常
+  - DOMAIN-SUFFIX,cloudfront.net,日常
+  - DOMAIN-SUFFIX,cloudmagic.com,日常
+  - DOMAIN-SUFFIX,cmail19.com,日常
+  - DOMAIN-SUFFIX,cnet.com,日常
+  - DOMAIN-SUFFIX,cocoapods.org,日常
+  - DOMAIN-SUFFIX,comodoca.com,日常
+  - DOMAIN-SUFFIX,crashlytics.com,日常
+  - DOMAIN-SUFFIX,culturedcode.com,日常
+  - DOMAIN-SUFFIX,d.pr,日常
+  - DOMAIN-SUFFIX,danilo.to,日常
+  - DOMAIN-SUFFIX,dayone.me,日常
+  - DOMAIN-SUFFIX,db.tt,日常
+  - DOMAIN-SUFFIX,deskconnect.com,日常
+  - DOMAIN-SUFFIX,disq.us,日常
+  - DOMAIN-SUFFIX,disqus.com,日常
+  - DOMAIN-SUFFIX,disquscdn.com,日常
+  - DOMAIN-SUFFIX,dnsimple.com,日常
+  - DOMAIN-SUFFIX,docker.com,日常
+  - DOMAIN-SUFFIX,dribbble.com,日常
+  - DOMAIN-SUFFIX,droplr.com,日常
+  - DOMAIN-SUFFIX,duckduckgo.com,日常
+  - DOMAIN-SUFFIX,dueapp.com,日常
+  - DOMAIN-SUFFIX,dytt8.net,日常
+  - DOMAIN-SUFFIX,edgecastcdn.net,日常
+  - DOMAIN-SUFFIX,edgekey.net,日常
+  - DOMAIN-SUFFIX,edgesuite.net,日常
+  - DOMAIN-SUFFIX,engadget.com,日常
+  - DOMAIN-SUFFIX,entrust.net,日常
+  - DOMAIN-SUFFIX,eurekavpt.com,日常
+  - DOMAIN-SUFFIX,evernote.com,日常
+  - DOMAIN-SUFFIX,fabric.io,日常
+  - DOMAIN-SUFFIX,fast.com,日常
+  - DOMAIN-SUFFIX,fastly.net,日常
+  - DOMAIN-SUFFIX,fc2.com,日常
+  - DOMAIN-SUFFIX,feedburner.com,日常
+  - DOMAIN-SUFFIX,feedly.com,日常
+  - DOMAIN-SUFFIX,feedsportal.com,日常
+  - DOMAIN-SUFFIX,fiftythree.com,日常
+  - DOMAIN-SUFFIX,firebaseio.com,日常
+  - DOMAIN-SUFFIX,flexibits.com,日常
+  - DOMAIN-SUFFIX,flickr.com,日常
+  - DOMAIN-SUFFIX,flipboard.com,日常
+  - DOMAIN-SUFFIX,g.co,日常
+  - DOMAIN-SUFFIX,gabia.net,日常
+  - DOMAIN-SUFFIX,geni.us,日常
+  - DOMAIN-SUFFIX,gfx.ms,日常
+  - DOMAIN-SUFFIX,ggpht.com,日常
+  - DOMAIN-SUFFIX,ghostnoteapp.com,日常
+  - DOMAIN-SUFFIX,git.io,日常
+  - DOMAIN-KEYWORD,github,日常
+  - DOMAIN-SUFFIX,globalsign.com,日常
+  - DOMAIN-SUFFIX,gmodules.com,日常
+  - DOMAIN-SUFFIX,godaddy.com,日常
+  - DOMAIN-SUFFIX,golang.org,日常
+  - DOMAIN-SUFFIX,gongm.in,日常
+  - DOMAIN-SUFFIX,goo.gl,日常
+  - DOMAIN-SUFFIX,goodreaders.com,日常
+  - DOMAIN-SUFFIX,goodreads.com,日常
+  - DOMAIN-SUFFIX,gravatar.com,日常
+  - DOMAIN-SUFFIX,gstatic.com,日常
+  - DOMAIN-SUFFIX,gvt0.com,日常
+  - DOMAIN-SUFFIX,hockeyapp.net,日常
+  - DOMAIN-SUFFIX,hotmail.com,日常
+  - DOMAIN-SUFFIX,icons8.com,日常
+  - DOMAIN-SUFFIX,ifixit.com,日常
+  - DOMAIN-SUFFIX,ift.tt,日常
+  - DOMAIN-SUFFIX,ifttt.com,日常
+  - DOMAIN-SUFFIX,iherb.com,日常
+  - DOMAIN-SUFFIX,imageshack.us,日常
+  - DOMAIN-SUFFIX,img.ly,日常
+  - DOMAIN-SUFFIX,imgur.com,日常
+  - DOMAIN-SUFFIX,imore.com,日常
+  - DOMAIN-SUFFIX,instapaper.com,日常
+  - DOMAIN-SUFFIX,ipn.li,日常
+  - DOMAIN-SUFFIX,is.gd,日常
+  - DOMAIN-SUFFIX,issuu.com,日常
+  - DOMAIN-SUFFIX,itgonglun.com,日常
+  - DOMAIN-SUFFIX,itun.es,日常
+  - DOMAIN-SUFFIX,ixquick.com,日常
+  - DOMAIN-SUFFIX,j.mp,日常
+  - DOMAIN-SUFFIX,js.revsci.net,日常
+  - DOMAIN-SUFFIX,jshint.com,日常
+  - DOMAIN-SUFFIX,jtvnw.net,日常
+  - DOMAIN-SUFFIX,justgetflux.com,日常
+  - DOMAIN-SUFFIX,kat.cr,日常
+  - DOMAIN-SUFFIX,klip.me,日常
+  - DOMAIN-SUFFIX,libsyn.com,日常
+  - DOMAIN-SUFFIX,linode.com,日常
+  - DOMAIN-SUFFIX,lithium.com,日常
+  - DOMAIN-SUFFIX,littlehj.com,日常
+  - DOMAIN-SUFFIX,live.com,日常
+  - DOMAIN-SUFFIX,live.net,日常
+  - DOMAIN-SUFFIX,livefilestore.com,日常
+  - DOMAIN-SUFFIX,llnwd.net,日常
+  - DOMAIN-SUFFIX,macid.co,日常
+  - DOMAIN-SUFFIX,macromedia.com,日常
+  - DOMAIN-SUFFIX,macrumors.com,日常
+  - DOMAIN-SUFFIX,mashable.com,日常
+  - DOMAIN-SUFFIX,mathjax.org,日常
+  - DOMAIN-SUFFIX,medium.com,日常
+  - DOMAIN-SUFFIX,mega.co.nz,日常
+  - DOMAIN-SUFFIX,mega.nz,日常
+  - DOMAIN-SUFFIX,megaupload.com,日常
+  - DOMAIN-SUFFIX,microsofttranslator.com,日常
+  - DOMAIN-SUFFIX,mindnode.com,日常
+  - DOMAIN-SUFFIX,mobile01.com,日常
+  - DOMAIN-SUFFIX,modmyi.com,日常
+  - DOMAIN-SUFFIX,msedge.net,日常
+  - DOMAIN-SUFFIX,myfontastic.com,日常
+  - DOMAIN-SUFFIX,name.com,日常
+  - DOMAIN-SUFFIX,nextmedia.com,日常
+  - DOMAIN-SUFFIX,nsstatic.net,日常
+  - DOMAIN-SUFFIX,nssurge.com,日常
+  - DOMAIN-SUFFIX,nyt.com,日常
+  - DOMAIN-SUFFIX,nytimes.com,日常
+  - DOMAIN-SUFFIX,omnigroup.com,日常
+  - DOMAIN-SUFFIX,onedrive.com,日常
+  - DOMAIN-SUFFIX,onenote.com,日常
+  - DOMAIN-SUFFIX,ooyala.com,日常
+  - DOMAIN-SUFFIX,openvpn.net,日常
+  - DOMAIN-SUFFIX,openwrt.org,日常
+  - DOMAIN-SUFFIX,orkut.com,日常
+  - DOMAIN-SUFFIX,osxdaily.com,日常
+  - DOMAIN-SUFFIX,outlook.com,日常
+  - DOMAIN-SUFFIX,ow.ly,日常
+  - DOMAIN-SUFFIX,paddleapi.com,日常
+  - DOMAIN-SUFFIX,parallels.com,日常
+  - DOMAIN-SUFFIX,parse.com,日常
+  - DOMAIN-SUFFIX,pdfexpert.com,日常
+  - DOMAIN-SUFFIX,periscope.tv,日常
+  - DOMAIN-SUFFIX,pinboard.in,日常
+  - DOMAIN-SUFFIX,pinterest.com,日常
+  - DOMAIN-SUFFIX,pixelmator.com,日常
+  - DOMAIN-SUFFIX,pixiv.net,日常
+  - DOMAIN-SUFFIX,playpcesor.com,日常
+  - DOMAIN-SUFFIX,playstation.com,日常
+  - DOMAIN-SUFFIX,playstation.com.hk,日常
+  - DOMAIN-SUFFIX,playstation.net,日常
+  - DOMAIN-SUFFIX,playstationnetwork.com,日常
+  - DOMAIN-SUFFIX,pushwoosh.com,日常
+  - DOMAIN-SUFFIX,rime.im,日常
+  - DOMAIN-SUFFIX,servebom.com,日常
+  - DOMAIN-SUFFIX,sfx.ms,日常
+  - DOMAIN-SUFFIX,shadowsocks.org,日常
+  - DOMAIN-SUFFIX,sharethis.com,日常
+  - DOMAIN-SUFFIX,shazam.com,日常
+  - DOMAIN-SUFFIX,skype.com,日常
+  - DOMAIN-SUFFIX,smartdns日常.com,日常
+  - DOMAIN-SUFFIX,smartmailcloud.com,日常
+  - DOMAIN-SUFFIX,sndcdn.com,日常
+  - DOMAIN-SUFFIX,sony.com,日常
+  - DOMAIN-SUFFIX,soundcloud.com,日常
+  - DOMAIN-SUFFIX,sourceforge.net,日常
+  - DOMAIN-SUFFIX,spotify.com,日常
+  - DOMAIN-SUFFIX,squarespace.com,日常
+  - DOMAIN-SUFFIX,sstatic.net,日常
+  - DOMAIN-SUFFIX,st.luluku.pw,日常
+  - DOMAIN-SUFFIX,stackoverflow.com,日常
+  - DOMAIN-SUFFIX,startpage.com,日常
+  - DOMAIN-SUFFIX,staticflickr.com,日常
+  - DOMAIN-SUFFIX,steamcommunity.com,日常
+  - DOMAIN-SUFFIX,symauth.com,日常
+  - DOMAIN-SUFFIX,symcb.com,日常
+  - DOMAIN-SUFFIX,symcd.com,日常
+  - DOMAIN-SUFFIX,tapbots.com,日常
+  - DOMAIN-SUFFIX,tapbots.net,日常
+  - DOMAIN-SUFFIX,tdesktop.com,日常
+  - DOMAIN-SUFFIX,techcrunch.com,日常
+  - DOMAIN-SUFFIX,techsmith.com,日常
+  - DOMAIN-SUFFIX,thepiratebay.org,日常
+  - DOMAIN-SUFFIX,theverge.com,日常
+  - DOMAIN-SUFFIX,time.com,日常
+  - DOMAIN-SUFFIX,timeinc.net,日常
+  - DOMAIN-SUFFIX,tiny.cc,日常
+  - DOMAIN-SUFFIX,tinypic.com,日常
+  - DOMAIN-SUFFIX,tmblr.co,日常
+  - DOMAIN-SUFFIX,todoist.com,日常
+  - DOMAIN-SUFFIX,trello.com,日常
+  - DOMAIN-SUFFIX,trustasiassl.com,日常
+  - DOMAIN-SUFFIX,tumblr.co,日常
+  - DOMAIN-SUFFIX,tumblr.com,日常
+  - DOMAIN-SUFFIX,tweetdeck.com,日常
+  - DOMAIN-SUFFIX,tweetmarker.net,日常
+  - DOMAIN-SUFFIX,twitch.tv,日常
+  - DOMAIN-SUFFIX,txmblr.com,日常
+  - DOMAIN-SUFFIX,typekit.net,日常
+  - DOMAIN-SUFFIX,ubertags.com,日常
+  - DOMAIN-SUFFIX,ublock.org,日常
+  - DOMAIN-SUFFIX,ubnt.com,日常
+  - DOMAIN-SUFFIX,ulyssesapp.com,日常
+  - DOMAIN-SUFFIX,urchin.com,日常
+  - DOMAIN-SUFFIX,usertrust.com,日常
+  - DOMAIN-SUFFIX,v.gd,日常
+  - DOMAIN-SUFFIX,v2ex.com,日常
+  - DOMAIN-SUFFIX,vimeo.com,日常
+  - DOMAIN-SUFFIX,vimeocdn.com,日常
+  - DOMAIN-SUFFIX,vine.co,日常
+  - DOMAIN-SUFFIX,vivaldi.com,日常
+  - DOMAIN-SUFFIX,vox-cdn.com,日常
+  - DOMAIN-SUFFIX,vsco.co,日常
+  - DOMAIN-SUFFIX,vultr.com,日常
+  - DOMAIN-SUFFIX,w.org,日常
+  - DOMAIN-SUFFIX,w3schools.com,日常
+  - DOMAIN-SUFFIX,webtype.com,日常
+  - DOMAIN-SUFFIX,wikiwand.com,日常
+  - DOMAIN-SUFFIX,wikileaks.org,日常
+  - DOMAIN-SUFFIX,wikimedia.org,日常
+  - DOMAIN-SUFFIX,wikipedia.com,日常
+  - DOMAIN-SUFFIX,wikipedia.org,日常
+  - DOMAIN-SUFFIX,windows.com,日常
+  - DOMAIN-SUFFIX,windows.net,日常
+  - DOMAIN-SUFFIX,wire.com,日常
+  - DOMAIN-SUFFIX,wordpress.com,日常
+  - DOMAIN-SUFFIX,workflowy.com,日常
+  - DOMAIN-SUFFIX,wp.com,日常
+  - DOMAIN-SUFFIX,wsj.com,日常
+  - DOMAIN-SUFFIX,wsj.net,日常
+  - DOMAIN-SUFFIX,xda-developers.com,日常
+  - DOMAIN-SUFFIX,xeeno.com,日常
+  - DOMAIN-SUFFIX,xiti.com,日常
+  - DOMAIN-SUFFIX,yahoo.com,日常
+  - DOMAIN-SUFFIX,yimg.com,日常
+  - DOMAIN-SUFFIX,ying.com,日常
+  - DOMAIN-SUFFIX,yoyo.org,日常
+  - DOMAIN-SUFFIX,ytimg.com,日常
+
+  # Telegram
+  - DOMAIN-SUFFIX,telegra.ph,日常
+  - DOMAIN-SUFFIX,telegram.org,日常
+  - IP-CIDR,91.108.4.0/22,日常
+  - IP-CIDR,91.108.8.0/21,日常
+  - IP-CIDR,91.108.16.0/22,日常
+  - IP-CIDR,91.108.56.0/22,日常
+  - IP-CIDR,149.154.160.0/20,日常
+  - IP-CIDR6,2001:67c:4e8::/48,日常
+  - IP-CIDR6,2001:b28:f23d::/48,日常
+  - IP-CIDR6,2001:b28:f23f::/48,日常
+
+  # LAN
+  - DOMAIN,injections.adguard.org,DIRECT
+  - DOMAIN,local.adguard.org,DIRECT
+  - DOMAIN-SUFFIX,local,DIRECT
+
+  - IP-CIDR,0.0.0.0/8,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,17.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,169.254.0.0/16,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,192.0.0.0/24,DIRECT
+  - IP-CIDR,192.0.2.0/24,DIRECT
+  - IP-CIDR,192.88.99.0/24,DIRECT
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,198.18.0.0/15,DIRECT
+  - IP-CIDR,198.51.100.0/24,DIRECT
+  - IP-CIDR,203.0.113.0/24,DIRECT
+  - IP-CIDR,224.0.0.0/4,DIRECT
+  - IP-CIDR,240.0.0.0/4,DIRECT
+  - IP-CIDR,255.255.255.255/32,DIRECT
+  - IP-CIDR6,::1/128,DIRECT
+  - IP-CIDR6,fe80::/10,DIRECT
+  - IP-CIDR6,fc00::/7,DIRECT
+  - IP-CIDR6,ff00::/8,DIRECT
+
+  # 最终规则
+  - GEOIP,CN,DIRECT
+  - MATCH,日常
