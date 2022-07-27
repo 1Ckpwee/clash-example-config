@@ -27,23 +27,33 @@ secret: ''
 
 dns:
   enable: true
-  ipv6: true
-  listen: '0.0.0.0:53'
+  ipv6: false
+  listen: 0.0.0.0:7874
   use-hosts: true
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
+  enhanced-mode: redir-host
   nameserver:
-    - 202.120.224.6
-    - 114.114.114.114
-    - 223.5.5.5
-    - 'tcp://223.5.5.5'
+  - 114.114.114.114
+  - 192.168.10.1
+  - tcp://114.114.114.114
+  - tcp://119.29.29.29
+  - https://doh.pub/dns-query
+  - https://dns.alidns.com/dns-query
   fallback:
-    - 'tls://223.5.5.5:853'
-    - 'https://223.5.5.5/dns-query'
+  - https://dns.cloudflare.com/dns-query
+  - https://public.dns.iij.jp/dns-query
+  - https://jp.tiar.app/dns-query
+  - https://jp.tiarap.org/dns-query
+  - tls://dot.tiar.app
   fallback-filter:
     geoip: true
     ipcidr:
-      - 240.0.0.0/4
+    - 240.0.0.0/4
+  default-nameserver:
+  - 114.114.114.114
+  - 192.168.10.1
+  - tcp://114.114.114.114
+  - tcp://119.29.29.29
+
 proxies:
   # 这里可以预定义一些本地节点（可以是自己用 VPS 搭建，也可以是订阅部分节点取出连接质量好的那部分）
   # 我打算优先选择这些本地节点，否则 fallback 到订阅节点
